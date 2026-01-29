@@ -244,7 +244,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "uf-dps310"
+name = "uf-dps3xx"
 version = "0.1.0"
 dependencies = [
  "defmt",

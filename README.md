@@ -1,18 +1,18 @@
-# uf-dps310
+# uf-dps3xx
 
-[![CI](https://github.com/jettify/uf-dps310/actions/workflows/CI.yml/badge.svg)](https://github.com/jettify/uf-dps310/actions/workflows/CI.yml)
-[![codecov](https://codecov.io/gh/jettify/uf-dps310/graph/badge.svg?token=2N16CN1OZX)](https://codecov.io/gh/jettify/uf-dps310)
+[![CI](https://github.com/jettify/uf-dps3xx/actions/workflows/CI.yml/badge.svg)](https://github.com/jettify/uf-dps3xx/actions/workflows/CI.yml)
+[![codecov](https://codecov.io/gh/jettify/uf-dps3xx/graph/badge.svg?token=2N16CN1OZX)](https://codecov.io/gh/jettify/uf-dps3xx)
 
-*uf-dps310* driver for DPS310 barometer.
+*uf-dps3xx* driver for DPS3xx barometer.
 
 
 ## Installation
 
-Add `uf-dps310` to your `Cargo.toml`:
+Add `uf-dps3xx` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-uf-dps310 = "*" # replace * by the latest version of the crate.
+uf-dps3xx = "*" # replace * by the latest version of the crate.
 ```
 
 Or use the command line:

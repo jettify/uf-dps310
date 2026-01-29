@@ -1,8 +1,8 @@
 //!
-//! DPS310 embedded-hal I2C driver crate
+//! DPS3xx embedded-hal I2C driver crate
 //!
-//! A platform agnostic driver to interface with the dps310 barometric pressure & temp sensor.
-//! This driver uses I2C via [embedded-hal]. Note that the dps310 also supports SPI, however that
+//! A platform agnostic driver to interface with the dps3xx barometric pressure & temp sensor.
+//! This driver uses I2C via [embedded-hal]. Note that the dps3xx also supports SPI, however that
 //! is not (yet) implemented in this driver.
 //!
 //! [embedded-hal]: https://docs.rs/embedded-hal
@@ -28,7 +28,7 @@ pub use config::TemperatureRate;
 pub use config::TemperatureResolution;
 pub use register::Register;
 
-/// DPS310 Product ID <https://www.infineon.com/dgdl/Infineon-DPS310-DataSheet-v01_01-EN.pdf?fileId=5546d462576f34750157750826c42242>, P. 25
+/// DPS3xx Product ID <https://www.infineon.com/dgdl/Infineon-DPS3xx-DataSheet-v01_01-EN.pdf?fileId=5546d462576f34750157750826c42242>, P. 25
 const PRODUCT_ID: u8 = 0x00;
 const SCALE_FACTORS: [f32; 8] = [
     524_288_f32,
@@ -112,28 +112,28 @@ impl<I2CError> From<I2CError> for Error<I2CError> {
     }
 }
 
-pub struct DPS310<I2C, S> {
+pub struct DPS3xx<I2C, S> {
     bus: I2cBus<I2C>,
     coeffs: CalibrationCoeffs,
     config: Config,
     _state: PhantomData<S>,
 }
 
-impl<I2C, I2CError> DPS310<I2C, Unconfigured>
+impl<I2C, I2CError> DPS3xx<I2C, Unconfigured>
 where
     I2C: I2c<Error = I2CError>,
 {
     pub fn new(i2c: I2C, address: u8, config: &Config) -> Result<Self, Error<I2CError>> {
-        let dps310 = Self {
+        let dps3xx = Self {
             bus: I2cBus::new(i2c, address),
             coeffs: CalibrationCoeffs::default(),
             config: *config,
             _state: PhantomData,
         };
-        Ok(dps310)
+        Ok(dps3xx)
     }
 
-    pub fn init(mut self) -> Result<DPS310<I2C, Configured>, Error<I2CError>> {
+    pub fn init(mut self) -> Result<DPS3xx<I2C, Configured>, Error<I2CError>> {
         let id = self.get_product_id()?;
         if (id & 0x0F) != (PRODUCT_ID & 0x0F) {
             return Err(Error::InvalidProductId);
@@ -145,18 +145,18 @@ where
     }
 }
 
-impl<I2C, I2CError> DPS310<I2C, Configured>
+impl<I2C, I2CError> DPS3xx<I2C, Configured>
 where
     I2C: I2c<Error = I2CError>,
 {
     /// Read calibration coefficients. User must wait for `Self::coef_ready()` to return true before reading coefficients.
     ///
-    /// Taken from official Arduino library, see <https://github.com/Infineon/DPS310-Pressure-Sensor/blob/888200c7efd8edb19ce69a2144e28ba31cdad449/src/Dps310.cpp#L89>
+    /// Taken from official Arduino library, see <https://github.com/Infineon/DPS3xx-Pressure-Sensor/blob/888200c7efd8edb19ce69a2144e28ba31cdad449/src/Dps310.cpp#L89>
     ///
     /// See Sec 8.11
     pub fn read_calibration_coefficients(
         mut self,
-    ) -> Result<DPS310<I2C, Calibrated>, Error<I2CError>> {
+    ) -> Result<DPS3xx<I2C, Calibrated>, Error<I2CError>> {
         let mut bytes: [u8; 18] = [0; 18];
         self.bus.read_many(Register::COEFF_REG_1, &mut bytes)?;
 
@@ -166,7 +166,7 @@ where
     }
 }
 
-impl<I2C, I2CError, S> DPS310<I2C, S>
+impl<I2C, I2CError, S> DPS3xx<I2C, S>
 where
     I2C: I2c<Error = I2CError>,
     S: IsConfigured,
@@ -251,7 +251,7 @@ where
     }
 }
 
-impl<I2C, I2CError> DPS310<I2C, Calibrated>
+impl<I2C, I2CError> DPS3xx<I2C, Calibrated>
 where
     I2C: I2c<Error = I2CError>,
 {
@@ -281,7 +281,7 @@ where
     }
 }
 
-impl<I2C, S, I2CError> DPS310<I2C, S>
+impl<I2C, S, I2CError> DPS3xx<I2C, S>
 where
     I2C: I2c<Error = I2CError>,
 {
@@ -328,7 +328,7 @@ where
     }
 
     /// Issue a full reset and fifo flush
-    pub fn reset(mut self) -> Result<DPS310<I2C, Unconfigured>, Error<I2CError>> {
+    pub fn reset(mut self) -> Result<DPS3xx<I2C, Unconfigured>, Error<I2CError>> {
         self.write_reg(Register::RESET, 0b10001001)?;
 
         Ok(self.into_state())
@@ -343,8 +343,8 @@ where
         Ok(self.bus.read_reg(reg)?)
     }
 
-    fn into_state<T>(self) -> DPS310<I2C, T> {
-        DPS310 {
+    fn into_state<T>(self) -> DPS3xx<I2C, T> {
+        DPS3xx {
             bus: self.bus,
             coeffs: self.coeffs,
             config: self.config,

@@ -1,9 +1,9 @@
 [package]
-name = "uf-dps310"
+name = "uf-dps3xx"
 edition = "2021"
 version = "0.1.0"
 authors = ["Nickolai Novik <nickolainovik@gmail.com>"]
-description = "A platform agnostic driver for DPS310 through I2C"
+description = "A platform agnostic driver for DPS3xx through I2C"
 
 readme = "README.md"
 keywords = [
@@ -11,12 +11,12 @@ keywords = [
   "pressure",
   "temperature",
   "sensor",
-  "DPS310",
+  "DPS3xx",
 ]
 categories = ["embedded", "hardware-support", "no-std"]
 license = "Apache-2.0"
-homepage = "https://github.com/jettify/uf-dps310"
-repository = "https://github.com/jettify/uf-dps310"
+homepage = "https://github.com/jettify/uf-dps3xx"
+repository = "https://github.com/jettify/uf-dps3xx"
 
 [dependencies]
 embedded-hal = { version = "1.0.0" }

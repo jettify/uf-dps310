@@ -1,10 +1,10 @@
 use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
-use uf_dps310::{Config, Register, DPS310};
+use uf_dps3xx::{Config, Register, DPS3xx};
 
 const ADDR: u8 = 0x77;
 
 #[test]
-fn test_new_dps310_defaults() {
+fn test_new_dps3xx_defaults() {
     let expectations = [
         I2cTransaction::write_read(ADDR, vec![Register::PROD_ID.addr()], vec![0x10]),
         I2cTransaction::write_read(ADDR, vec![Register::PRS_CFG.addr()], vec![0x00]),
@@ -18,7 +18,7 @@ fn test_new_dps310_defaults() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let _dps = dps.init().unwrap();
     i2c.done();
 }
@@ -39,7 +39,7 @@ fn test_read_calibration_coefficients() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let dps = dps.init().unwrap();
 
     let _dps = dps.read_calibration_coefficients().unwrap();
@@ -63,7 +63,7 @@ fn test_trigger_measurement() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let mut dps = dps.init().unwrap();
 
     dps.trigger_measurement(true, false, false).unwrap();
@@ -88,7 +88,7 @@ fn test_read_temp_calibrated() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let dps = dps.init().unwrap();
     let mut dps = dps.read_calibration_coefficients().unwrap();
 
@@ -117,7 +117,7 @@ fn test_status_and_ready_flags() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let mut dps = dps.init().unwrap();
 
     assert_eq!(dps.read_status().unwrap(), 0xF0);
@@ -148,7 +148,7 @@ fn test_read_pressure_calibrated() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let dps = dps.init().unwrap();
     let mut dps = dps.read_calibration_coefficients().unwrap();
 
@@ -176,7 +176,7 @@ fn test_reset() {
 
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
-    let dps = DPS310::new(i2c.clone(), ADDR, &config).unwrap();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let dps = dps.init().unwrap();
 
     let _dps = dps.reset().unwrap();
