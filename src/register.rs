@@ -1,4 +1,4 @@
-//! DPS310 register addresses
+//! DPS3xx register addresses
 //!
 //! See datasheet <https://www.infineon.com/dgdl/Infineon-DPS310-DataSheet-v01_01-EN.pdf?fileId=5546d462576f34750157750826c42242>
 
