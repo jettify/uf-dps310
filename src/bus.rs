@@ -5,6 +5,7 @@ pub(crate) trait Bus {
     type Error;
 
     fn write_reg(&mut self, reg: Register, value: u8) -> Result<(), Self::Error>;
+    fn write_addr(&mut self, addr: u8, value: u8) -> Result<(), Self::Error>;
     fn read_reg(&mut self, reg: Register) -> Result<u8, Self::Error>;
     fn read_many(&mut self, start: Register, buf: &mut [u8]) -> Result<(), Self::Error>;
 }
@@ -28,6 +29,11 @@ where
 
     fn write_reg(&mut self, reg: Register, value: u8) -> Result<(), Self::Error> {
         let bytes = [reg.addr(), value];
+        self.i2c.write(self.address, &bytes)
+    }
+
+    fn write_addr(&mut self, addr: u8, value: u8) -> Result<(), Self::Error> {
+        let bytes = [addr, value];
         self.i2c.write(self.address, &bytes)
     }
 

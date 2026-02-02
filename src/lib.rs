@@ -30,6 +30,9 @@ pub use register::Register;
 
 /// DPS3xx Product ID <https://www.infineon.com/dgdl/Infineon-DPS3xx-DataSheet-v01_01-EN.pdf?fileId=5546d462576f34750157750826c42242>, P. 25
 const PRODUCT_ID: u8 = 0x00;
+pub const BUSYTIME_SCALING: u32 = 10;
+pub const BUSYTIME_FAILSAFE_MS: u32 = 10;
+pub const MAX_BUSYTIME_UNITS: u32 = (1000 - BUSYTIME_FAILSAFE_MS) * BUSYTIME_SCALING;
 const SCALE_FACTORS: [f32; 8] = [
     524_288_f32,
     1_572_864_f32,
@@ -40,6 +43,18 @@ const SCALE_FACTORS: [f32; 8] = [
     1_040_384_f32,
     2_088_960_f32,
 ];
+
+pub fn calc_busy_time_units(measure_rate: u8, oversampling: u8) -> u32 {
+    (20u32 << measure_rate) + (16u32 << (oversampling + measure_rate))
+}
+
+pub fn calc_busy_time_ms(measure_rate: u8, oversampling: u8) -> u32 {
+    calc_busy_time_units(measure_rate, oversampling) / BUSYTIME_SCALING
+}
+
+pub fn calc_total_wait_ms(measure_rate: u8, oversampling: u8) -> u32 {
+    calc_busy_time_ms(measure_rate, oversampling) + BUSYTIME_FAILSAFE_MS
+}
 
 fn prs_cfg_value(current: u8, config: &Config) -> u8 {
     (current & 0x80)
@@ -73,6 +88,11 @@ fn cfg_reg_value(config: &Config, temp_shift: bool, pres_shift: bool) -> u8 {
 pub struct Unconfigured;
 pub struct Configured;
 pub struct Calibrated;
+pub struct InitInProgress;
+pub enum InitState<I2C> {
+    InProgress(DPS3xx<I2C, InitInProgress>),
+    Ready(DPS3xx<I2C, Configured>),
+}
 
 pub trait IsConfigured {}
 impl IsConfigured for Configured {}
@@ -133,15 +153,43 @@ where
         Ok(dps3xx)
     }
 
-    pub fn init(mut self) -> Result<DPS3xx<I2C, Configured>, Error<I2CError>> {
+    pub fn start_init(mut self) -> Result<DPS3xx<I2C, InitInProgress>, Error<I2CError>> {
         let id = self.get_product_id()?;
+        // Upper nibble is revision, lower nibble is product id.
         if (id & 0x0F) != (PRODUCT_ID & 0x0F) {
             return Err(Error::InvalidProductId);
         }
         self.apply_config()?;
         self.standby()?;
 
+        // Correct temp logic
+        self.write_addr(0x0E, 0xA5)?;
+        self.write_addr(0x0F, 0x96)?;
+        self.write_addr(0x62, 0x02)?;
+        self.write_addr(0x0E, 0x00)?;
+        self.write_addr(0x0F, 0x00)?;
+
+        // Trigger measurement (temp=true, pres=false, continuous=false)
+        let mut meas_cfg: u8 = self.read_reg(Register::MEAS_CFG)?;
+        meas_cfg = (meas_cfg >> 3) << 3; // reset last 3 bits
+        meas_cfg |= (0 as u8) << 2 | (1 as u8) << 1 | 0 as u8;
+        self.write_reg(Register::MEAS_CFG, meas_cfg)?;
+
         Ok(self.into_state())
+    }
+}
+
+impl<I2C, I2CError> DPS3xx<I2C, InitInProgress>
+where
+    I2C: I2c<Error = I2CError>,
+{
+    pub fn try_finish_init(mut self) -> Result<InitState<I2C>, Error<I2CError>> {
+        if !self.temp_ready()? {
+            return Ok(InitState::InProgress(self));
+        }
+        let _ = self.read_i24(Register::TMP_B2)?;
+        self.standby()?;
+        Ok(InitState::Ready(self.into_state()))
     }
 }
 
@@ -169,7 +217,6 @@ where
 impl<I2C, I2CError, S> DPS3xx<I2C, S>
 where
     I2C: I2c<Error = I2CError>,
-    S: IsConfigured,
 {
     pub fn status(&mut self) -> Result<Status, Error<I2CError>> {
         let status = self.read_status()?;
@@ -181,26 +228,6 @@ where
     pub fn read_status(&mut self) -> Result<u8, Error<I2CError>> {
         let meas_cfg = self.read_reg(Register::MEAS_CFG)?;
         Ok(meas_cfg & 0xF0)
-    }
-
-    /// Start a single or continuous measurement for `pres`sure or `temp`erature
-    pub fn trigger_measurement(
-        &mut self,
-        temp: bool,
-        pres: bool,
-        continuous: bool,
-    ) -> Result<(), Error<I2CError>> {
-        if !temp && !pres {
-            // unsupported mode, See Sec 8.5 (MEAS_CFG), MEAS_CTRL field values
-            return Err(Error::InvalidMeasurementMode);
-        }
-        // See section 8.5, MEAS_CTRL field description in manual
-
-        let mut meas_cfg: u8 = self.read_reg(Register::MEAS_CFG)?;
-        meas_cfg = (meas_cfg >> 3) << 3; // reset last 3 bits
-        meas_cfg |= (continuous as u8) << 2 | (temp as u8) << 1 | pres as u8;
-
-        self.write_reg(Register::MEAS_CFG, meas_cfg)
     }
 
     /// Returns true if sensor coeficients are available
@@ -221,6 +248,42 @@ where
     /// Returns true if pressure measurement is ready
     pub fn pres_ready(&mut self) -> Result<bool, Error<I2CError>> {
         Ok(self.status()?.pres_ready)
+    }
+
+}
+
+impl<I2C, I2CError, S> DPS3xx<I2C, S>
+where
+    I2C: I2c<Error = I2CError>,
+    S: IsConfigured,
+{
+    /// Start a single or continuous measurement for `pres`sure or `temp`erature
+    pub fn trigger_measurement(
+        &mut self,
+        temp: bool,
+        pres: bool,
+        continuous: bool,
+    ) -> Result<(), Error<I2CError>> {
+        if !temp && !pres {
+            // unsupported mode, See Sec 8.5 (MEAS_CFG), MEAS_CTRL field values
+            return Err(Error::InvalidMeasurementMode);
+        }
+        // See section 8.5, MEAS_CTRL field description in manual
+
+        let mut meas_cfg: u8 = self.read_reg(Register::MEAS_CFG)?;
+        meas_cfg = (meas_cfg >> 3) << 3; // reset last 3 bits
+        meas_cfg |= (continuous as u8) << 2 | (temp as u8) << 1 | pres as u8;
+
+        self.write_reg(Register::MEAS_CFG, meas_cfg)
+    }
+
+    pub fn correct_temp(&mut self) -> Result<(), Error<I2CError>> {
+        self.write_addr(0x0E, 0xA5)?;
+        self.write_addr(0x0F, 0x96)?;
+        self.write_addr(0x62, 0x02)?;
+        self.write_addr(0x0E, 0x00)?;
+        self.write_addr(0x0F, 0x00)?;
+        Ok(())
     }
 
     /// Read raw temperature contents
@@ -266,6 +329,13 @@ where
         Ok((self.coeffs.C0 as f32 * 0.5) + (self.coeffs.C1 as f32 * scaled))
     }
 
+    pub fn try_read_temp_calibrated(&mut self) -> nb::Result<f32, Error<I2CError>> {
+        if !self.temp_ready()? {
+            return Err(nb::Error::WouldBlock);
+        }
+        self.read_temp_calibrated().map_err(nb::Error::Other)
+    }
+
     /// Read calibrated pressure data in Pa.
     ///
     /// This method uses the pre calculated constants based on the calibration coefficients
@@ -278,6 +348,13 @@ where
         let temp_scaled = self.read_temp_scaled()?;
         let pres_cal = calibrate_preasure(&self.coeffs, pres_scaled, temp_scaled);
         Ok(pres_cal)
+    }
+
+    pub fn try_read_pressure_calibrated(&mut self) -> nb::Result<f32, Error<I2CError>> {
+        if !self.pres_ready()? {
+            return Err(nb::Error::WouldBlock);
+        }
+        self.read_pressure_calibrated().map_err(nb::Error::Other)
     }
 }
 
@@ -341,6 +418,11 @@ where
 
     fn read_reg(&mut self, reg: Register) -> Result<u8, Error<I2CError>> {
         Ok(self.bus.read_reg(reg)?)
+    }
+
+    fn write_addr(&mut self, addr: u8, value: u8) -> Result<(), Error<I2CError>> {
+        self.bus.write_addr(addr, value)?;
+        Ok(())
     }
 
     fn into_state<T>(self) -> DPS3xx<I2C, T> {
