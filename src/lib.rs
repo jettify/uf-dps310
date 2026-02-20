@@ -10,9 +10,10 @@
 #![no_std]
 
 mod bus;
+mod calibration;
 mod config;
-mod core;
 mod device;
+mod device_internal;
 mod register;
 
 pub use config::{

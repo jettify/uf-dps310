@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 /// Pressure rate
-#[derive(Default, Copy, Clone, Debug)]
+#[repr(u8)]
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PressureRate {
     //  See P.9 of manual
     #[default]
@@ -15,13 +16,20 @@ pub enum PressureRate {
 }
 
 impl PressureRate {
-    pub fn val(self) -> u8 {
+    pub const fn val(self) -> u8 {
         self as u8
     }
 }
 
+impl From<PressureRate> for u8 {
+    fn from(value: PressureRate) -> Self {
+        value as u8
+    }
+}
+
 /// Pressure resolution
-#[derive(Default, Copy, Clone, Debug)]
+#[repr(u8)]
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PressureResolution {
     // See section 8.3, PM_RC field
     #[default]
@@ -36,13 +44,20 @@ pub enum PressureResolution {
 }
 
 impl PressureResolution {
-    pub fn val(self) -> u8 {
+    pub const fn val(self) -> u8 {
         self as u8
     }
 }
 
+impl From<PressureResolution> for u8 {
+    fn from(value: PressureResolution) -> Self {
+        value as u8
+    }
+}
+
 /// Temperature rate
-#[derive(Default, Copy, Clone, Debug)]
+#[repr(u8)]
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TemperatureRate {
     // See section 8.4 Temperature Configuration, TMP_RATE
     #[default]
@@ -57,13 +72,20 @@ pub enum TemperatureRate {
 }
 
 impl TemperatureRate {
-    pub fn val(self) -> u8 {
+    pub const fn val(self) -> u8 {
         self as u8
     }
 }
 
+impl From<TemperatureRate> for u8 {
+    fn from(value: TemperatureRate) -> Self {
+        value as u8
+    }
+}
+
 /// Temperature resolution
-#[derive(Default, Copy, Clone, Debug)]
+#[repr(u8)]
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TemperatureResolution {
     // See section 8.4 Temperature Configuration, TMP_PRC
     #[default]
@@ -78,8 +100,14 @@ pub enum TemperatureResolution {
 }
 
 impl TemperatureResolution {
-    pub fn val(self) -> u8 {
+    pub const fn val(self) -> u8 {
         self as u8
+    }
+}
+
+impl From<TemperatureResolution> for u8 {
+    fn from(value: TemperatureResolution) -> Self {
+        value as u8
     }
 }
 

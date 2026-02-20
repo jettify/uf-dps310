@@ -1,7 +1,3 @@
-//! DPS3xx register addresses
-//!
-//! See datasheet <https://www.infineon.com/dgdl/Infineon-DPS310-DataSheet-v01_01-EN.pdf?fileId=5546d462576f34750157750826c42242>
-
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 #[repr(u8)]
@@ -33,7 +29,6 @@ pub enum Register {
     COEFF_REG_10 = 0x19,
     COEFF_REG_11 = 0x20,
     COEFF_REG_12 = 0x21,
-
     TMP_COEF_SRCE = 0x28,
 }
 
