@@ -44,7 +44,7 @@ pub(crate) fn process_calibration_coefficients(
     coeffs.C30 = get_twos_complement(((bytes[16] as u32) << 8) | (bytes[17] as u32), 16);
 }
 
-pub(crate) fn calibrate_preasure(
+pub(crate) fn calibrate_pressure(
     coeffs: &CalibrationCoeffs,
     pres_scaled: f32,
     temp_scaled: f32,

@@ -1,7 +1,18 @@
+use embedded_hal::i2c::I2c;
 use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
-use uf_dps3xx::{Config, DPS3xx, InitState, Register};
+use uf_dps3xx::{Config, Configured, DPS3xx, InitInProgress, InitPoll, MeasurementMode, Register};
 
 const ADDR: u8 = 0x77;
+
+fn finish_init<I2C>(dps: DPS3xx<I2C, InitInProgress>) -> DPS3xx<I2C, Configured>
+where
+    I2C: I2c,
+{
+    match dps.finish_init() {
+        Ok(dps) => dps,
+        Err(_) => panic!("init not ready"),
+    }
+}
 
 #[test]
 fn test_new_dps3xx_defaults() {
@@ -29,11 +40,47 @@ fn test_new_dps3xx_defaults() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let _dps = finish_init(dps);
+    i2c.done();
+}
+
+#[test]
+fn test_finish_init_requires_poll() {
+    let expectations = [
+        I2cTransaction::write_read(ADDR, vec![Register::PROD_ID.addr()], vec![0x10]),
+        I2cTransaction::write_read(ADDR, vec![Register::PRS_CFG.addr()], vec![0x00]),
+        I2cTransaction::write(ADDR, vec![Register::PRS_CFG.addr(), 0x00]),
+        I2cTransaction::write_read(ADDR, vec![Register::TEMP_CFG.addr()], vec![0x00]),
+        I2cTransaction::write_read(ADDR, vec![Register::TMP_COEF_SRCE.addr()], vec![0x00]),
+        I2cTransaction::write(ADDR, vec![Register::TEMP_CFG.addr(), 0x00]),
+        I2cTransaction::write(ADDR, vec![Register::CFG_REG.addr(), 0x00]),
+        I2cTransaction::write(ADDR, vec![Register::MEAS_CFG.addr(), 0x00]),
+        I2cTransaction::write(ADDR, vec![0x0E, 0xA5]),
+        I2cTransaction::write(ADDR, vec![0x0F, 0x96]),
+        I2cTransaction::write(ADDR, vec![0x62, 0x02]),
+        I2cTransaction::write(ADDR, vec![0x0E, 0x00]),
+        I2cTransaction::write(ADDR, vec![0x0F, 0x00]),
+        I2cTransaction::write_read(ADDR, vec![Register::MEAS_CFG.addr()], vec![0x00]),
+        I2cTransaction::write(ADDR, vec![Register::MEAS_CFG.addr(), 0x02]),
+        I2cTransaction::write_read(ADDR, vec![Register::MEAS_CFG.addr()], vec![0x20]),
+        I2cTransaction::write_read(ADDR, vec![Register::TMP_B2.addr()], vec![0x00, 0x00, 0x00]),
+        I2cTransaction::write(ADDR, vec![Register::MEAS_CFG.addr(), 0x00]),
+    ];
+
+    let mut i2c = I2cMock::new(&expectations);
+    let config = Config::new();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
     let dps = dps.start_init().unwrap();
-    let _dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
+
+    let mut dps = match dps.finish_init() {
+        Ok(_) => panic!("finish_init should require poll_init"),
+        Err(dps) => dps,
     };
+
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let _dps = finish_init(dps);
     i2c.done();
 }
 
@@ -64,18 +111,16 @@ fn test_read_calibration_coefficients() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
-    let dps = dps.start_init().unwrap();
-    let dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
-    };
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let dps = finish_init(dps);
 
     let _dps = dps.read_calibration_coefficients().unwrap();
     i2c.done();
 }
 
 #[test]
-fn test_trigger_measurement() {
+fn test_start_measurement() {
     let expectations = [
         I2cTransaction::write_read(ADDR, vec![Register::PROD_ID.addr()], vec![0x10]),
         I2cTransaction::write_read(ADDR, vec![Register::PRS_CFG.addr()], vec![0x00]),
@@ -102,13 +147,12 @@ fn test_trigger_measurement() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
-    let dps = dps.start_init().unwrap();
-    let mut dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
-    };
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let mut dps = finish_init(dps);
 
-    dps.trigger_measurement(true, false, false).unwrap();
+    dps.start_measurement(MeasurementMode::OneShotTemperature)
+        .unwrap();
     i2c.done();
 }
 
@@ -141,11 +185,9 @@ fn test_read_temp_calibrated() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
-    let dps = dps.start_init().unwrap();
-    let dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
-    };
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let dps = finish_init(dps);
     let mut dps = dps.read_calibration_coefficients().unwrap();
 
     let _temp = dps.read_temp_calibrated().unwrap();
@@ -184,11 +226,9 @@ fn test_status_and_ready_flags() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
-    let dps = dps.start_init().unwrap();
-    let mut dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
-    };
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let mut dps = finish_init(dps);
 
     assert_eq!(dps.read_status().unwrap(), 0xF0);
     assert!(dps.coef_ready().unwrap());
@@ -229,11 +269,9 @@ fn test_read_pressure_calibrated() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
-    let dps = dps.start_init().unwrap();
-    let dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
-    };
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let dps = finish_init(dps);
     let mut dps = dps.read_calibration_coefficients().unwrap();
 
     let pres = dps.read_pressure_calibrated().unwrap();
@@ -271,12 +309,22 @@ fn test_reset() {
     let mut i2c = I2cMock::new(&expectations);
     let config = Config::new();
     let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
-    let dps = dps.start_init().unwrap();
-    let dps = match dps.try_finish_init().unwrap() {
-        InitState::Ready(dps) => dps,
-        InitState::InProgress(_) => panic!("init not ready"),
-    };
+    let mut dps = dps.start_init().unwrap();
+    assert!(matches!(dps.poll_init().unwrap(), InitPoll::Ready));
+    let dps = finish_init(dps);
 
     let _dps = dps.reset().unwrap();
     i2c.done();
+}
+
+#[test]
+fn test_release() {
+    let expectations = [];
+
+    let i2c = I2cMock::new(&expectations);
+    let config = Config::new();
+    let dps = DPS3xx::new(i2c.clone(), ADDR, &config).unwrap();
+
+    let mut released_i2c = dps.release();
+    released_i2c.done();
 }

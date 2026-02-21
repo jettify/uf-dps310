@@ -1,6 +1,6 @@
 use crate::bus::{Bus, I2cBus};
 use crate::calibration::{
-    calibrate_preasure, get_twos_complement, process_calibration_coefficients, CalibrationCoeffs,
+    calibrate_pressure, get_twos_complement, process_calibration_coefficients, CalibrationCoeffs,
 };
 use crate::config::{Config, PressureResolution, TemperatureResolution};
 use crate::device_internal::{
@@ -20,9 +20,9 @@ pub struct Configured;
 pub struct Calibrated;
 pub struct InitInProgress;
 
-pub enum InitState<I2C> {
-    InProgress(DPS3xx<I2C, InitInProgress>),
-    Ready(DPS3xx<I2C, Configured>),
+pub enum InitPoll {
+    Pending(u32),
+    Ready,
 }
 
 pub trait IsConfigured {}
@@ -33,9 +33,28 @@ impl IsConfigured for Calibrated {}
 pub enum Error<I2CError> {
     /// I2C Interface Error
     I2CError(I2CError),
-    /// Invalid measurement mode
-    InvalidMeasurementMode,
     InvalidProductId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MeasurementMode {
+    OneShotPressure,
+    OneShotTemperature,
+    BackgroundPressure,
+    BackgroundTemperature,
+    BackgroundPressureAndTemperature,
+}
+
+impl MeasurementMode {
+    const fn meas_ctrl(self) -> u8 {
+        match self {
+            Self::OneShotPressure => 0b001,
+            Self::OneShotTemperature => 0b010,
+            Self::BackgroundPressure => 0b101,
+            Self::BackgroundTemperature => 0b110,
+            Self::BackgroundPressureAndTemperature => 0b111,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +86,7 @@ pub struct DPS3xx<I2C, S> {
     bus: I2cBus<I2C>,
     coeffs: CalibrationCoeffs,
     config: Config,
+    init_ready: bool,
     _state: PhantomData<S>,
 }
 
@@ -79,6 +99,7 @@ where
             bus: I2cBus::new(i2c, address),
             coeffs: CalibrationCoeffs::default(),
             config: *config,
+            init_ready: false,
             _state: PhantomData,
         };
         Ok(dps3xx)
@@ -102,6 +123,7 @@ where
         meas_cfg = (meas_cfg >> 3) << 3;
         meas_cfg |= 1_u8 << 1;
         self.write_reg(Register::MEAS_CFG, meas_cfg)?;
+        self.init_ready = false;
 
         Ok(self.into_state())
     }
@@ -111,13 +133,32 @@ impl<I2C, I2CError> DPS3xx<I2C, InitInProgress>
 where
     I2C: I2c<Error = I2CError>,
 {
-    pub fn try_finish_init(mut self) -> Result<InitState<I2C>, Error<I2CError>> {
+    fn init_wait_ms(&self) -> u32 {
+        calc_total_wait_ms(
+            self.config.temp_rate.unwrap_or_default() as u8,
+            self.config.temp_res.unwrap_or_default() as u8,
+        )
+    }
+
+    pub fn poll_init(&mut self) -> Result<InitPoll, Error<I2CError>> {
+        if self.init_ready {
+            return Ok(InitPoll::Ready);
+        }
         if !self.temp_ready()? {
-            return Ok(InitState::InProgress(self));
+            return Ok(InitPoll::Pending(self.init_wait_ms()));
         }
         let _ = self.read_i24(Register::TMP_B2)?;
         self.standby()?;
-        Ok(InitState::Ready(self.into_state()))
+        self.init_ready = true;
+        Ok(InitPoll::Ready)
+    }
+
+    pub fn finish_init(self) -> Result<DPS3xx<I2C, Configured>, Self> {
+        if self.init_ready {
+            Ok(self.into_state())
+        } else {
+            Err(self)
+        }
     }
 }
 
@@ -146,6 +187,10 @@ impl<I2C, I2CError, S> DPS3xx<I2C, S>
 where
     I2C: I2c<Error = I2CError>,
 {
+    pub fn release(self) -> I2C {
+        self.bus.release()
+    }
+
     pub fn status(&mut self) -> Result<Status, Error<I2CError>> {
         let status = self.read_status()?;
         Ok(Status::from_bits(status))
@@ -184,20 +229,9 @@ where
     I2C: I2c<Error = I2CError>,
     S: IsConfigured,
 {
-    /// Start a single or continuous measurement for `pres`sure or `temp`erature
-    pub fn trigger_measurement(
-        &mut self,
-        temp: bool,
-        pres: bool,
-        continuous: bool,
-    ) -> Result<(), Error<I2CError>> {
-        if !temp && !pres {
-            return Err(Error::InvalidMeasurementMode);
-        }
-
+    pub fn start_measurement(&mut self, mode: MeasurementMode) -> Result<(), Error<I2CError>> {
         let mut meas_cfg: u8 = self.read_reg(Register::MEAS_CFG)?;
-        meas_cfg = (meas_cfg >> 3) << 3;
-        meas_cfg |= (continuous as u8) << 2 | (temp as u8) << 1 | pres as u8;
+        meas_cfg = (meas_cfg & 0xF8) | mode.meas_ctrl();
 
         self.write_reg(Register::MEAS_CFG, meas_cfg)
     }
@@ -271,7 +305,7 @@ where
     pub fn read_pressure_calibrated(&mut self) -> Result<f32, Error<I2CError>> {
         let pres_scaled = self.read_pressure_scaled()?;
         let temp_scaled = self.read_temp_scaled()?;
-        let pres_cal = calibrate_preasure(&self.coeffs, pres_scaled, temp_scaled);
+        let pres_cal = calibrate_pressure(&self.coeffs, pres_scaled, temp_scaled);
         Ok(pres_cal)
     }
 
@@ -331,6 +365,7 @@ where
     /// Issue a full reset and fifo flush
     pub fn reset(mut self) -> Result<DPS3xx<I2C, Unconfigured>, Error<I2CError>> {
         self.write_reg(Register::RESET, 0b10001001)?;
+        self.init_ready = false;
 
         Ok(self.into_state())
     }
@@ -354,6 +389,7 @@ where
             bus: self.bus,
             coeffs: self.coeffs,
             config: self.config,
+            init_ready: self.init_ready,
             _state: PhantomData,
         }
     }

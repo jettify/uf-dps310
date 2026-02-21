@@ -21,7 +21,7 @@ pub use config::{
 };
 pub use device::{
     calc_busy_time_ms, calc_busy_time_units, calc_total_wait_ms, Calibrated, Configured, DPS3xx,
-    Error, InitInProgress, InitState, IsConfigured, Status, Unconfigured, BUSYTIME_FAILSAFE_MS,
-    BUSYTIME_SCALING, MAX_BUSYTIME_UNITS,
+    Error, InitInProgress, InitPoll, IsConfigured, MeasurementMode, Status, Unconfigured,
+    BUSYTIME_FAILSAFE_MS, BUSYTIME_SCALING, MAX_BUSYTIME_UNITS,
 };
 pub use register::Register;
