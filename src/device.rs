@@ -15,11 +15,21 @@ pub use crate::device_internal::{
     BUSYTIME_SCALING, MAX_BUSYTIME_UNITS,
 };
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Unconfigured;
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Configured;
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Calibrated;
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InitInProgress;
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitPoll {
     Pending(u32),
     Ready,
@@ -29,6 +39,7 @@ pub trait IsConfigured {}
 impl IsConfigured for Configured {}
 impl IsConfigured for Calibrated {}
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
 pub enum Error<I2CError> {
     /// I2C Interface Error
@@ -36,6 +47,7 @@ pub enum Error<I2CError> {
     InvalidProductId,
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MeasurementMode {
     OneShotPressure,
@@ -57,6 +69,7 @@ impl MeasurementMode {
     }
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Status {
     pub coef_ready: bool,

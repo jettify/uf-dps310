@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 /// Pressure rate
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PressureRate {
     //  See P.9 of manual
@@ -29,6 +30,7 @@ impl From<PressureRate> for u8 {
 
 /// Pressure resolution
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PressureResolution {
     // See section 8.3, PM_RC field
@@ -57,6 +59,7 @@ impl From<PressureResolution> for u8 {
 
 /// Temperature rate
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TemperatureRate {
     // See section 8.4 Temperature Configuration, TMP_RATE
@@ -85,6 +88,7 @@ impl From<TemperatureRate> for u8 {
 
 /// Temperature resolution
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TemperatureResolution {
     // See section 8.4 Temperature Configuration, TMP_PRC
@@ -112,6 +116,7 @@ impl From<TemperatureResolution> for u8 {
 }
 
 /// Configuration struct
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug)]
 pub struct Config {
     pub(crate) pres_rate: Option<PressureRate>,
@@ -224,5 +229,61 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_new_defaults() {
+        let cfg = Config::new();
+
+        assert_eq!(cfg.pres_rate, None);
+        assert_eq!(cfg.pres_res, None);
+        assert_eq!(cfg.temp_rate, None);
+        assert_eq!(cfg.temp_res, None);
+        assert_eq!(cfg.temp_ext, None);
+        assert!(!cfg.int_hl);
+        assert!(!cfg.int_fifo);
+        assert!(!cfg.int_temp);
+        assert!(!cfg.int_pres);
+        assert!(!cfg.temp_shift);
+        assert!(!cfg.pres_shift);
+        assert!(!cfg.fifo_enable);
+        assert!(!cfg.spi_mode);
+    }
+
+    #[test]
+    fn test_config_builder_methods() {
+        let mut cfg = Config::new();
+        cfg.pres_rate(PressureRate::_16_SPS)
+            .pres_res(PressureResolution::_8_SAMPLES)
+            .temp_rate(TemperatureRate::_32_SPS)
+            .temp_res(TemperatureResolution::_64_SAMPLES)
+            .temp_external(true)
+            .int_hl(true)
+            .int_fifo(true)
+            .int_temp(true)
+            .int_pres(true)
+            .temp_shift(true)
+            .pres_shift(true)
+            .fifo(false, true)
+            .spi_mode(true);
+
+        assert_eq!(cfg.pres_rate, Some(PressureRate::_16_SPS));
+        assert_eq!(cfg.pres_res, Some(PressureResolution::_8_SAMPLES));
+        assert_eq!(cfg.temp_rate, Some(TemperatureRate::_32_SPS));
+        assert_eq!(cfg.temp_res, Some(TemperatureResolution::_64_SAMPLES));
+        assert_eq!(cfg.temp_ext, Some(true));
+        assert!(cfg.int_hl);
+        assert!(!cfg.int_fifo);
+        assert!(cfg.int_temp);
+        assert!(cfg.int_pres);
+        assert!(cfg.temp_shift);
+        assert!(cfg.pres_shift);
+        assert!(cfg.fifo_enable);
+        assert!(cfg.spi_mode);
     }
 }

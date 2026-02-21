@@ -1,6 +1,8 @@
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Register {
     PSR_B2 = 0x00,
     PSR_B1 = 0x01,
