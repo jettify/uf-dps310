@@ -45,6 +45,8 @@ pub enum Error<I2CError> {
     /// I2C Interface Error
     I2CError(I2CError),
     InvalidProductId,
+    BusyTimeExceeded,
+    CoefficientsNotReady,
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -100,6 +102,7 @@ pub struct DPS3xx<I2C, S> {
     coeffs: CalibrationCoeffs,
     config: Config,
     init_ready: bool,
+    init_temp_started: bool,
     _state: PhantomData<S>,
 }
 
@@ -113,6 +116,7 @@ where
             coeffs: CalibrationCoeffs::default(),
             config: *config,
             init_ready: false,
+            init_temp_started: false,
             _state: PhantomData,
         };
         Ok(dps3xx)
@@ -120,23 +124,16 @@ where
 
     pub fn start_init(mut self) -> Result<DPS3xx<I2C, InitInProgress>, Error<I2CError>> {
         let id = self.get_product_id()?;
-        if (id & 0x0F) != (PRODUCT_ID & 0x0F) {
+        if (id & 0xF0) != (PRODUCT_ID & 0xF0) {
             return Err(Error::InvalidProductId);
         }
         self.apply_config()?;
         self.standby()?;
 
-        self.write_addr(0x0E, 0xA5)?;
-        self.write_addr(0x0F, 0x96)?;
-        self.write_addr(0x62, 0x02)?;
-        self.write_addr(0x0E, 0x00)?;
-        self.write_addr(0x0F, 0x00)?;
+        self.apply_temp_workaround_registers()?;
 
-        let mut meas_cfg: u8 = self.read_reg(Register::MEAS_CFG)?;
-        meas_cfg = (meas_cfg >> 3) << 3;
-        meas_cfg |= 1_u8 << 1;
-        self.write_reg(Register::MEAS_CFG, meas_cfg)?;
         self.init_ready = false;
+        self.init_temp_started = false;
 
         Ok(self.into_state())
     }
@@ -157,12 +154,29 @@ where
         if self.init_ready {
             return Ok(InitPoll::Ready);
         }
-        if !self.temp_ready()? {
+
+        let status = self.status()?;
+        if !status.init_complete {
             return Ok(InitPoll::Pending(self.init_wait_ms()));
         }
+
+        if !self.init_temp_started {
+            self.write_reg(
+                Register::MEAS_CFG,
+                MeasurementMode::OneShotTemperature.meas_ctrl(),
+            )?;
+            self.init_temp_started = true;
+            return Ok(InitPoll::Pending(self.init_wait_ms()));
+        }
+
+        if !status.temp_ready {
+            return Ok(InitPoll::Pending(self.init_wait_ms()));
+        }
+
         let _ = self.read_i24(Register::TMP_B2)?;
         self.standby()?;
         self.init_ready = true;
+        self.init_temp_started = false;
         Ok(InitPoll::Ready)
     }
 
@@ -187,6 +201,10 @@ where
     pub fn read_calibration_coefficients(
         mut self,
     ) -> Result<DPS3xx<I2C, Calibrated>, Error<I2CError>> {
+        if !self.coef_ready()? {
+            return Err(Error::CoefficientsNotReady);
+        }
+
         let mut bytes: [u8; 18] = [0; 18];
         self.bus.read_many(Register::COEFF_REG_1, &mut bytes)?;
 
@@ -200,6 +218,28 @@ impl<I2C, I2CError, S> DPS3xx<I2C, S>
 where
     I2C: I2c<Error = I2CError>,
 {
+    fn max_busy_time_exceeded(&self, mode: MeasurementMode) -> bool {
+        let temp_rate = self.config.temp_rate.unwrap_or_default() as u8;
+        let temp_res = self.config.temp_res.unwrap_or_default() as u8;
+        let pres_rate = self.config.pres_rate.unwrap_or_default() as u8;
+        let pres_res = self.config.pres_res.unwrap_or_default() as u8;
+
+        match mode {
+            MeasurementMode::BackgroundPressure => {
+                calc_busy_time_units(pres_rate, pres_res) >= MAX_BUSYTIME_UNITS
+            }
+            MeasurementMode::BackgroundTemperature => {
+                calc_busy_time_units(temp_rate, temp_res) >= MAX_BUSYTIME_UNITS
+            }
+            MeasurementMode::BackgroundPressureAndTemperature => {
+                calc_busy_time_units(temp_rate, temp_res)
+                    + calc_busy_time_units(pres_rate, pres_res)
+                    >= MAX_BUSYTIME_UNITS
+            }
+            MeasurementMode::OneShotPressure | MeasurementMode::OneShotTemperature => false,
+        }
+    }
+
     pub fn release(self) -> I2C {
         self.bus.release()
     }
@@ -243,19 +283,14 @@ where
     S: IsConfigured,
 {
     pub fn start_measurement(&mut self, mode: MeasurementMode) -> Result<(), Error<I2CError>> {
+        if self.max_busy_time_exceeded(mode) {
+            return Err(Error::BusyTimeExceeded);
+        }
+
         let mut meas_cfg: u8 = self.read_reg(Register::MEAS_CFG)?;
         meas_cfg = (meas_cfg & 0xF8) | mode.meas_ctrl();
 
         self.write_reg(Register::MEAS_CFG, meas_cfg)
-    }
-
-    pub fn correct_temp(&mut self) -> Result<(), Error<I2CError>> {
-        self.write_addr(0x0E, 0xA5)?;
-        self.write_addr(0x0F, 0x96)?;
-        self.write_addr(0x62, 0x02)?;
-        self.write_addr(0x0E, 0x00)?;
-        self.write_addr(0x0F, 0x00)?;
-        Ok(())
     }
 
     /// Read raw temperature contents
@@ -379,6 +414,7 @@ where
     pub fn reset(mut self) -> Result<DPS3xx<I2C, Unconfigured>, Error<I2CError>> {
         self.write_reg(Register::RESET, 0b10001001)?;
         self.init_ready = false;
+        self.init_temp_started = false;
 
         Ok(self.into_state())
     }
@@ -396,6 +432,17 @@ where
         self.bus.write_addr(addr, value)?;
         Ok(())
     }
+    /// Taken from official Arduino library.
+    // Fix IC with a fuse bit problem, which lead to a wrong temperature
+    // Should not affect ICs without this problem
+    fn apply_temp_workaround_registers(&mut self) -> Result<(), Error<I2CError>> {
+        self.write_addr(0x0E, 0xA5)?;
+        self.write_addr(0x0F, 0x96)?;
+        self.write_addr(0x62, 0x02)?;
+        self.write_addr(0x0E, 0x00)?;
+        self.write_addr(0x0F, 0x00)?;
+        Ok(())
+    }
 
     fn into_state<T>(self) -> DPS3xx<I2C, T> {
         DPS3xx {
@@ -403,6 +450,7 @@ where
             coeffs: self.coeffs,
             config: self.config,
             init_ready: self.init_ready,
+            init_temp_started: self.init_temp_started,
             _state: PhantomData,
         }
     }
