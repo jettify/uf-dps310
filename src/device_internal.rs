@@ -1,6 +1,6 @@
 use crate::config::Config;
 
-pub(crate) const PRODUCT_ID: u8 = 0x00;
+pub(crate) const PRODUCT_ID: u8 = 0x10;
 pub const BUSYTIME_SCALING: u32 = 10;
 pub const BUSYTIME_FAILSAFE_MS: u32 = 10;
 pub const MAX_BUSYTIME_UNITS: u32 = (1000 - BUSYTIME_FAILSAFE_MS) * BUSYTIME_SCALING;

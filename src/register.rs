@@ -1,5 +1,4 @@
 #[allow(non_camel_case_types)]
-#[allow(dead_code)]
 #[repr(u8)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,8 +28,14 @@ pub enum Register {
     COEFF_REG_8 = 0x17,
     COEFF_REG_9 = 0x18,
     COEFF_REG_10 = 0x19,
-    COEFF_REG_11 = 0x20,
-    COEFF_REG_12 = 0x21,
+    COEFF_REG_11 = 0x1A,
+    COEFF_REG_12 = 0x1B,
+    COEFF_REG_13 = 0x1C,
+    COEFF_REG_14 = 0x1D,
+    COEFF_REG_15 = 0x1E,
+    COEFF_REG_16 = 0x1F,
+    COEFF_REG_17 = 0x20,
+    COEFF_REG_18 = 0x21,
     TMP_COEF_SRCE = 0x28,
 }
 
