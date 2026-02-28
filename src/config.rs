@@ -132,6 +132,7 @@ pub struct Config {
     pub(crate) pres_shift: bool,
     pub(crate) fifo_enable: bool,
     pub(crate) spi_mode: bool,
+    pub(crate) init_timeout_ms: u32,
 }
 
 impl Config {
@@ -151,6 +152,7 @@ impl Config {
             pres_shift: false,
             fifo_enable: false,
             spi_mode: false,
+            init_timeout_ms: 5000,
         }
     }
 
@@ -224,6 +226,11 @@ impl Config {
         self.spi_mode = three_wire;
         self
     }
+
+    pub fn init_timeout_ms(&mut self, timeout_ms: u32) -> &mut Self {
+        self.init_timeout_ms = timeout_ms;
+        self
+    }
 }
 
 impl Default for Config {
@@ -253,6 +260,7 @@ mod tests {
         assert!(!cfg.pres_shift);
         assert!(!cfg.fifo_enable);
         assert!(!cfg.spi_mode);
+        assert_eq!(cfg.init_timeout_ms, 5000);
     }
 
     #[test]
@@ -270,7 +278,8 @@ mod tests {
             .temp_shift(true)
             .pres_shift(true)
             .fifo(false, true)
-            .spi_mode(true);
+            .spi_mode(true)
+            .init_timeout_ms(10_000);
 
         assert_eq!(cfg.pres_rate, Some(PressureRate::_16_SPS));
         assert_eq!(cfg.pres_res, Some(PressureResolution::_8_SAMPLES));
@@ -285,5 +294,6 @@ mod tests {
         assert!(cfg.pres_shift);
         assert!(cfg.fifo_enable);
         assert!(cfg.spi_mode);
+        assert_eq!(cfg.init_timeout_ms, 10_000);
     }
 }
