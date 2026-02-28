@@ -36,6 +36,14 @@ pub enum InitPoll {
     Ready,
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitStage {
+    WaitingInitComplete,
+    WaitingInitTempReady,
+    WaitingCoefReady,
+}
+
 pub trait IsConfigured {}
 impl IsConfigured for Configured {}
 impl IsConfigured for Calibrated {}
@@ -48,6 +56,8 @@ pub enum Error<I2CError> {
     InvalidProductId,
     BusyTimeExceeded,
     CoefficientsNotReady,
+    InitTimeout(InitStage),
+    InvalidOversampling(u8),
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -147,10 +157,18 @@ where
         D: DelayNs,
     {
         let mut dps = self.start_init()?;
+        let mut timeout_remaining_ms = dps.config.init_timeout_ms;
 
         let mut dps = loop {
             match dps.poll_init()? {
-                InitPoll::Pending(wait_ms) => delay.delay_ms(wait_ms),
+                InitPoll::Pending(wait_ms) => {
+                    let stage = if dps.init_temp_started {
+                        InitStage::WaitingInitTempReady
+                    } else {
+                        InitStage::WaitingInitComplete
+                    };
+                    Self::delay_or_timeout(delay, &mut timeout_remaining_ms, wait_ms, stage)?;
+                }
                 InitPoll::Ready => match dps.finish_init() {
                     Ok(dps) => break dps,
                     Err(unfinished) => dps = unfinished,
@@ -159,10 +177,32 @@ where
         };
 
         while !dps.coef_ready()? {
-            delay.delay_ms(10);
+            Self::delay_or_timeout(
+                delay,
+                &mut timeout_remaining_ms,
+                10,
+                InitStage::WaitingCoefReady,
+            )?;
         }
 
         dps.read_calibration_coefficients_unchecked()
+    }
+
+    fn delay_or_timeout<D>(
+        delay: &mut D,
+        remaining_ms: &mut u32,
+        wait_ms: u32,
+        stage: InitStage,
+    ) -> Result<(), Error<I2CError>>
+    where
+        D: DelayNs,
+    {
+        if wait_ms > *remaining_ms {
+            return Err(Error::InitTimeout(stage));
+        }
+        delay.delay_ms(wait_ms);
+        *remaining_ms -= wait_ms;
+        Ok(())
     }
 }
 
@@ -335,7 +375,11 @@ where
     fn read_temp_scaled(&mut self) -> Result<f32, Error<I2CError>> {
         let temp_cfg = self.read_reg(Register::TEMP_CFG)?;
         let osr = (temp_cfg & 0x07) as usize;
-        let raw_sc: f32 = self.read_temp_raw()? as f32 / SCALE_FACTORS[osr];
+        let raw_sc: f32 = self.read_temp_raw()? as f32
+            / SCALE_FACTORS
+                .get(osr)
+                .ok_or(Error::InvalidOversampling(temp_cfg))?;
+
         Ok(raw_sc)
     }
 
@@ -348,7 +392,10 @@ where
         let prs_cfg = self.read_reg(Register::PRS_CFG)?;
         let osr = (prs_cfg & 0x07) as usize;
         let pres_raw = self.read_pressure_raw()?;
-        let pres_scaled = pres_raw as f32 / SCALE_FACTORS[osr];
+        let pres_scaled = pres_raw as f32
+            / SCALE_FACTORS
+                .get(osr)
+                .ok_or(Error::InvalidOversampling(prs_cfg))?;
 
         Ok(pres_scaled)
     }
